@@ -5,8 +5,10 @@ from __future__ import annotations
 
 from typing import Callable
 
+from packaging.version import InvalidVersion, Version
+
 import aqt
-from anki.buildinfo import buildhash
+from anki.buildinfo import buildhash, version
 from anki.collection import CheckForUpdateResponse, Collection, GithubRelease
 from anki.utils import dev_mode, int_time, int_version, plat_desc
 from aqt.operations import QueryOp
@@ -84,7 +86,39 @@ def prompt_to_update(mw: aqt.AnkiQt, ver: str) -> None:
         # ignore this update
         mw.pm.meta["suppressUpdate"] = ver
     elif ret == QMessageBox.StandardButton.Yes:
+        download_and_install_latest_release(mw)
+
+
+def download_and_install_latest_release(mw: aqt.AnkiQt) -> None:
+    """Download and install the latest release, using the same flow as
+    Tools > Check for Updates.
+
+    Falls back to opening the download page if the release can't be fetched,
+    or isn't newer than the running version."""
+
+    def on_success(release: GithubRelease) -> None:
+        if release_is_newer(release):
+            _download_github_update_and_install(release)
+        else:
+            openLink(aqt.appWebsiteDownloadSection)
+
+    def on_failure(exc: Exception) -> None:
+        print(f"fetching latest release failed: {exc}")
         openLink(aqt.appWebsiteDownloadSection)
+
+    get_latest_release_op(
+        parent=mw,
+        include_prerelease=Version(version).is_prerelease,
+        on_success=on_success,
+    ).failure(on_failure).with_progress().run_in_background()
+
+
+def release_is_newer(release: GithubRelease) -> bool:
+    "True if the release is newer than the running version of Anki."
+    try:
+        return Version(release.tag_name) > Version(version)
+    except InvalidVersion:
+        return False
 
 
 def prompt_and_install_github_update(mw: aqt.AnkiQt, release: GithubRelease) -> None:
