@@ -11,6 +11,25 @@ import { placeCaretAfter, placeCaretBefore } from "$lib/domlib/place-caret";
 import type { FrameHandle } from "./frame-handle";
 import { checkHandles, frameElementTagName, FrameEnd, FrameStart, isFrameHandle } from "./frame-handle";
 
+/**
+ * The inputType of the most recent input event. The browser dispatches it
+ * synchronously after modifying the DOM, but before mutation observers run,
+ * so it tells restoreFrameHandles() what caused the mutations it's handling.
+ */
+let lastInputType: string | null = null;
+
+document.addEventListener(
+    "input",
+    (event: Event) => {
+        lastInputType = event instanceof InputEvent ? event.inputType : null;
+    },
+    true,
+);
+
+function lastInputWasDeletion(): boolean {
+    return lastInputType?.startsWith("delete") ?? false;
+}
+
 function restoreFrameHandles(mutations: MutationRecord[]): void {
     let referenceNode: Node | null = null;
 
@@ -52,6 +71,9 @@ function restoreFrameHandles(mutations: MutationRecord[]): void {
                 /* avoid triggering when (un)mounting whole frame */
                 mutations.length === 1
                 && !node.partiallySelected
+                /* block-level commands like text alignment can also remove a
+                 * handle; the handle should be restored in that case. */
+                && lastInputWasDeletion()
             ) {
                 // Similar to a "movein", this could be considered a
                 // "deletein" event and could get some special treatment, e.g.
